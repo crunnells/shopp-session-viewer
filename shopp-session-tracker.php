@@ -3,13 +3,16 @@
 Plugin Name: Shopp Session Tracker
 Plugin URI: 
 Description: Allows you to browse through Shopp's customer session data.
-Version: 0.1
+Version: 0.2
 Author: Chris Runnells
 Author URI: http://chrisrunnells.com
 */
 
 /*
 Version History:
+
+0.2 - 3/3/14
+Updating for Shopp 1.3
 
 0.1 - 5/1/12
 First version release.
@@ -29,26 +32,22 @@ class ShoppSessionTracker {
 	var $sst_slug = "shopp-session-tracker";
 
 	function __construct(){
-		// if ( !class_exists('Shopp') ) return;
-
-		add_action('admin_menu', array(&$this, 'add_menu'), 99);
+		add_action( 'admin_menu', array( $this, 'add_menu' ), 99);
 	}
 
 	function add_menu(){
-
-/*
-		if ( version_compare( 'SHOPP_VERSION' , '1.3' , '>=' ) ) {
-			add_submenu_page('shopp-orders','Session Viewer','Session Viewer','manage_options',$this->sst_slug,array(&$this, 'actions'));
-		} else {
-*/
-			add_submenu_page( 'shopp-orders', 'Session Viewer', 'Session Viewer', 'manage_options', $this->sst_slug, array(&$this, 'actions'));
-//		}
-
+		add_submenu_page( 'shopp-orders', 'Session Viewer', 'Session Viewer', 'manage_options', $this->sst_slug, array( $this, 'actions' ) );
+		/*
+		global $Shopp;
+		$ShoppMenu = $Shopp->Flow->Admin->MainMenu; //this is our Shopp menu handle
+		add_submenu_page($ShoppMenu, 'Session Tracker', 'Session Tracker',(defined('SHOPP_USERLEVEL') ? SHOPP_USERLEVEL : 'manage_options'), 'shopp-sessions', array($this, 'actions'));
+		*/
 	}
 
 	function actions (){
-	
-		if($_REQUEST['action'] == "view"){
+		$action = !empty($_REQUEST['action']) ? $_REQUEST['action'] : "";
+		
+		if("view" == $action){ 
 			$this->view_session($_REQUEST['session']);
 		} else {
 			$this->list_sessions();
@@ -57,12 +56,11 @@ class ShoppSessionTracker {
 	}
 
 	function list_sessions(){
-		global $wpdb;
-		$db = DB::get();
-		$shopping_table = DatabaseObject::tablename('shopping');
+		global $Shopp;
+		$shopping_table = ShoppDatabaseObject::tablename('shopping');
 	   
 		$query = "SELECT * FROM $shopping_table ORDER BY modified DESC";
-		$results = $wpdb->get_results($query);
+		$results = sDB::query($query);
 
 ?>
 <style>
@@ -105,13 +103,13 @@ tr.you {
 
 			$Session = unserialize($result->data);
 
-			if (!empty($Session->Order->Customer->email) && !empty($Session->Order->Customer->firstname) && !empty($Session->Order->Customer->lastname)){
-				$customer = '<a href="mailto:'.$Session->Order->Customer->email.'">'.$Session->Order->Customer->firstname.' '.$Session->Order->Customer->lastname.'</a>';
+			if (!empty($Session->ShoppCustomer->email) && !empty($Session->ShoppCustomer->firstname) && !empty($Session->ShoppCustomer->lastname)){
+				$customer = '<a href="mailto:'.$Session->ShoppCustomer->email.'">'.$Session->ShoppCustomer->firstname.' '.$Session->ShoppCustomer->lastname.'</a>';
 			} else {
 				$customer = "";
 			}
 
-			$cartitems = is_array($Session->Order->Cart->contents) ? count($Session->Order->Cart->contents) : 0;
+			// $cartitems = is_array($Session->ShoppCart->contents) ? count($Session->ShoppCart->contents) : 0;
 			
 			$class = ($_SERVER["REMOTE_ADDR"] == $result->ip) ? ' class="you"' : '';
 ?>
@@ -119,7 +117,7 @@ tr.you {
 		<td><a href="admin.php?page=<?php echo $this->sst_slug; ?>&action=view&session=<?php echo $result->session; ?>"><?php echo $result->session; ?></a></td>
 		<td><?php echo $customer; ?></td>
 		<td><?php echo $result->ip; ?></td>
-		<td><?php echo $cartitems; ?></td>
+		<td><?php // echo $cartitems; ?></td>
 		<td><?php echo $this->nicetime($result->created); ?></td>
 		<td><?php echo $this->nicetime($result->modified); ?></td>
     </tr>
@@ -135,11 +133,10 @@ tr.you {
    function view_session($session){
 
 		global $Shopp;
-		$db = DB::get();
-		$shopping_table = DatabaseObject::tablename('shopping');
+		$shopping_table = ShoppDatabaseObject::tablename('shopping');
 
 		$query = "SELECT * FROM $shopping_table WHERE session = '$session'";
-		$results = $db->query($query);
+		$results = sDB::query($query);
 		
 		$Session = unserialize($results->data);
 
@@ -190,7 +187,7 @@ tr.you {
 		<h3>Items in Cart</h3>
 <?php 
 
-	$Cart = $Session->Order->Cart;
+	$Cart = $Session->ShoppCart;
 echo "<ul>";
 	foreach($Cart->contents as $item){
 		echo "<h4>". $item->name ."</h4>";
@@ -203,7 +200,7 @@ echo "</ul>";
 </ul>
 
 <h2>Cart Promotions</h2>
-<?php $this->promotions($Session->CartPromotions->promotions); ?>
+<?php $this->promotions($Session->ShoppDiscounts); ?>
 
 <h2>Worklist</h2>
 <h2>Search</h2>
@@ -211,6 +208,11 @@ echo "</ul>";
 <h2>Referrer</h2>
 <h2>Viewed Items</h2>
 <?php $this->viewed_items($Session->viewed); ?>
+
+<h2>Shipping Rates</h2>
+<pre class="big">
+<?php print_r($Session->ShoppShiprates) ?>
+</pre>
 
 <h2>Raw Session Data</h2>
 <pre class="big">
@@ -240,15 +242,9 @@ echo "</ul>";
 
 	function cart_items($output){
 ?>
-<pre class="big">
-<?php print_r($output); ?>
-</pre>
-
-<strong>Data</strong>
 <pre class="small">
-<?php print_r($output->data); ?>
-</pre>
-
+<?php print_r($output); ?>
+</pre>			
 <?php	
 	}
 
@@ -256,8 +252,8 @@ echo "</ul>";
 ?>
 <pre class="big">
 <?php print_r($customer); ?>
-</pre>
-<?php
+</pre>			
+<?php		
 	}
 
 	function viewed_items($viewed) {
@@ -272,10 +268,12 @@ echo "</ul>";
 	    if(empty($date)) {
 	        return "No date provided";
 	    }
-
+	   
 	    $periods = array("second", "minute", "hour", "day", "week", "month", "year", "decade");
 	    $lengths = array("60","60","24","7","4.35","12","10");
 
+		// date_default_timezone_set('UTC');
+		// $now = time();
 		$offset = get_option( 'gmt_offset' ) * 3600;
 		$now = time() + $offset;
 		$unix_date = strtotime($date);
@@ -309,4 +307,5 @@ echo "</ul>";
 	}
 
 } // end Class
+ 
 
